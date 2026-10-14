@@ -1,0 +1,40 @@
+
+.attendance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.success-message {
+  margin-top: 16px;
+  color: #157347;
+}
+
+.error-message {
+  color: #b42318;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.attendance-table {
+  width: 100%;
+  margin-top: 16px;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.attendance-table th,
+.attendance-table td {
+  padding: 13px;
+  border-bottom: 1px solid #e3e9f2;
+  white-space: nowrap;
+}
+
+.attendance-table th {
+  background: #f7f9fc;
+  color: #46546b;
+}
