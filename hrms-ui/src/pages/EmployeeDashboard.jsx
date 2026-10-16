@@ -14,35 +14,85 @@ import {
   LoaderCircle,
   Wallet,
   FileText,
+  Settings,
 } from "lucide-react";
+
 import { fastApi } from "../services/api";
+import NotificationBell from "../components/NotificationBell";
 
 export default function EmployeeDashboard() {
   const navigate = useNavigate();
 
+  const [user, setUser] = useState({});
+  const [employeeId, setEmployeeId] = useState(null);
+  const [employeeLoading, setEmployeeLoading] = useState(true);
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  let user = {};
+  useEffect(() => {
+    try {
+      setUser(JSON.parse(localStorage.getItem("hrms_user") || "{}"));
+    } catch {
+      setUser({});
+    }
+  }, []);
 
-  try {
-    user = JSON.parse(localStorage.getItem("hrms_user") || "{}");
-  } catch {
-    user = {};
-  }
+  const displayName =
+    user.first_name || user.username || user.email || "Employee";
 
-  const employeeId = user.employee_id ?? user.employee?.id ?? null;
-  const displayName = user.username || user.email || "Employee";
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEmployeeProfile() {
+      setEmployeeLoading(true);
+      setError("");
+
+      try {
+        const response = await fastApi.get("/attendance/profile");
+        const data = response.data;
+
+        const id = Number(
+          data?.employee_id ?? data?.employee?.id ?? data?.id ?? 0
+        );
+
+        if (!cancelled) {
+          if (Number.isInteger(id) && id > 0) {
+            setEmployeeId(id);
+          } else {
+            setEmployeeId(null);
+            setError(
+              "Your employee profile was not returned by the server. Please contact HR."
+            );
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setEmployeeId(null);
+          setError(
+            err.response?.data?.detail ||
+              "Unable to load your employee profile. Check your login and API connection."
+          );
+        }
+      } finally {
+        if (!cancelled) setEmployeeLoading(false);
+      }
+    }
+
+    loadEmployeeProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadAttendance = useCallback(async () => {
+    if (employeeLoading) return;
+
     if (!employeeId) {
       setRecords([]);
-      setError(
-        "Employee ID is missing. Please connect your login account to an employee profile."
-      );
       setLoading(false);
       return;
     }
@@ -50,10 +100,7 @@ export default function EmployeeDashboard() {
     setLoading(true);
 
     try {
-      const response = await fastApi.get(
-        `/attendance/employee/${employeeId}`
-      );
-
+      const response = await fastApi.get("/attendance/me");
       const data = response.data;
 
       setRecords(
@@ -61,17 +108,16 @@ export default function EmployeeDashboard() {
           ? data
           : data?.records || data?.attendance || []
       );
-
       setError("");
     } catch (err) {
       setError(
         err.response?.data?.detail ||
-          "Unable to load attendance. Please check the API connection."
+          "Unable to load attendance. Check the API connection."
       );
     } finally {
       setLoading(false);
     }
-  }, [employeeId]);
+  }, [employeeId, employeeLoading]);
 
   useEffect(() => {
     loadAttendance();
@@ -79,7 +125,7 @@ export default function EmployeeDashboard() {
 
   async function performAttendance(action) {
     if (!employeeId) {
-      setError("Employee ID is unavailable.");
+      setError("Your employee ID is unavailable.");
       return;
     }
 
@@ -131,9 +177,7 @@ export default function EmployeeDashboard() {
 
   const todayRecord = records.find((record) => {
     const recordDate = (
-      record.attendance_date ||
-      record.date ||
-      ""
+      record.attendance_date || record.date || ""
     )
       .toString()
       .slice(0, 10);
@@ -142,31 +186,29 @@ export default function EmployeeDashboard() {
   });
 
   const presentCount = records.filter(
-    (record) =>
-      String(record.status || "").toUpperCase() === "PRESENT"
+    (record) => String(record.status || "").toUpperCase() === "PRESENT"
   ).length;
 
   const StatCard = ({ icon: Icon, label, value, description }) => (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium text-slate-500">{label}</p>
-
         <span className="rounded-xl bg-indigo-50 p-2.5 text-indigo-600">
           <Icon size={21} />
         </span>
       </div>
-
       <p className="mt-4 break-words text-3xl font-bold tracking-tight text-slate-900">
         {value}
       </p>
-
       <p className="mt-1 text-sm text-slate-500">{description}</p>
     </div>
   );
 
+  const attendanceDisabled =
+    employeeLoading || loading || busy || !employeeId;
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
-      {/* Header */}
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
@@ -178,11 +220,9 @@ export default function EmployeeDashboard() {
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-indigo-600">
                 HRMS · Employee Workspace
               </p>
-
               <h1 className="mt-1 text-2xl font-bold tracking-tight">
                 My Dashboard
               </h1>
-
               <p className="mt-1 text-sm text-slate-500">
                 Welcome back, {displayName}
               </p>
@@ -190,25 +230,48 @@ export default function EmployeeDashboard() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <NotificationBell />
+
             <button
+              type="button"
+              onClick={() => navigate("/notification-preferences")}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <Settings size={17} />
+              Notification Settings
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate("/holidays")}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+            >
+              <CalendarDays size={17} />
+              Holiday Calendar
+            </button>
+
+            <button
+              type="button"
               onClick={() => navigate("/employee-payroll")}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
             >
               <Wallet size={17} />
               My Payroll
             </button>
 
             <button
+              type="button"
               onClick={() => navigate("/employee-leave")}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
             >
               <CalendarDays size={17} />
               Apply for Leave
             </button>
 
             <button
+              type="button"
               onClick={logout}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-red-50 hover:text-red-600"
             >
               <LogOut size={17} />
               Logout
@@ -218,18 +281,15 @@ export default function EmployeeDashboard() {
       </header>
 
       <div className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
-        {/* Welcome Banner */}
         <section className="overflow-hidden rounded-3xl bg-gradient-to-r from-indigo-700 via-indigo-600 to-violet-600 p-6 text-white shadow-lg sm:p-8">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium text-indigo-100">
                 Your workday at a glance
               </p>
-
               <h2 className="mt-2 text-2xl font-bold sm:text-3xl">
                 Hello, {displayName}!
               </h2>
-
               <p className="mt-2 max-w-2xl text-sm leading-6 text-indigo-100">
                 Manage your attendance, apply for leave, check salary
                 records, and download your salary slips.
@@ -237,26 +297,36 @@ export default function EmployeeDashboard() {
 
               <div className="mt-5 flex flex-wrap gap-3">
                 <button
+                  type="button"
                   onClick={() => navigate("/employee-leave")}
-                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-indigo-700 transition hover:bg-indigo-50"
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-50"
                 >
                   <CalendarDays size={18} />
                   Manage My Leave
                 </button>
 
                 <button
+                  type="button"
                   onClick={() => navigate("/employee-payroll")}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-white/20"
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-4 py-2.5 text-sm font-bold text-white hover:bg-white/20"
                 >
                   <FileText size={18} />
                   View Salary Slips
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigate("/holidays")}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-4 py-2.5 text-sm font-bold text-white hover:bg-white/20"
+                >
+                  <CalendarDays size={18} />
+                  Holiday Calendar
                 </button>
               </div>
             </div>
 
             <div className="flex shrink-0 items-center gap-3 rounded-2xl border border-white/20 bg-white/10 p-4">
               <CalendarDays size={26} />
-
               <div>
                 <p className="text-xs text-indigo-100">Today</p>
                 <p className="mt-1 text-sm font-semibold">{today}</p>
@@ -265,7 +335,6 @@ export default function EmployeeDashboard() {
           </div>
         </section>
 
-        {/* Dashboard Statistics */}
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <StatCard
             icon={CalendarDays}
@@ -273,14 +342,12 @@ export default function EmployeeDashboard() {
             value={records.length}
             description="Total recorded entries"
           />
-
           <StatCard
             icon={CheckCircle2}
             label="Days Present"
             value={presentCount}
             description="Based on recorded attendance"
           />
-
           <StatCard
             icon={Clock}
             label="Today's Status"
@@ -293,12 +360,10 @@ export default function EmployeeDashboard() {
           />
         </section>
 
-        {/* Attendance Actions */}
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-bold">Attendance Actions</h2>
-
               <p className="mt-1 text-sm text-slate-500">
                 Record your start and end times for the working day.
               </p>
@@ -310,23 +375,35 @@ export default function EmployeeDashboard() {
             </span>
           </div>
 
+          {employeeLoading && (
+            <div className="mt-5 flex items-center gap-2 text-sm text-slate-500">
+              <LoaderCircle size={18} className="animate-spin" />
+              Loading your employee profile...
+            </div>
+          )}
+
+          {employeeId && (
+            <p className="mt-4 text-sm text-slate-500">
+              Employee ID: <strong>{employeeId}</strong>
+            </p>
+          )}
+
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <button
-              disabled={busy || loading || !employeeId}
+              type="button"
+              disabled={attendanceDisabled}
               onClick={() => performAttendance("clock-in")}
-              className="flex min-h-24 items-center justify-center gap-3 rounded-2xl bg-indigo-600 p-5 text-left text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex min-h-24 items-center justify-center gap-3 rounded-2xl bg-indigo-600 p-5 text-left text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy ? (
                 <LoaderCircle className="animate-spin" size={25} />
               ) : (
                 <ClockArrowDown size={26} />
               )}
-
               <span>
                 <span className="block font-bold">
                   {busy ? "Please wait..." : "Clock In"}
                 </span>
-
                 <span className="mt-1 block text-sm text-indigo-100">
                   Start your workday
                 </span>
@@ -334,21 +411,20 @@ export default function EmployeeDashboard() {
             </button>
 
             <button
-              disabled={busy || loading || !employeeId}
+              type="button"
+              disabled={attendanceDisabled}
               onClick={() => performAttendance("clock-out")}
-              className="flex min-h-24 items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left text-slate-800 transition hover:border-indigo-200 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex min-h-24 items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left text-slate-800 hover:border-indigo-200 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy ? (
                 <LoaderCircle className="animate-spin" size={25} />
               ) : (
                 <ClockArrowUp size={26} />
               )}
-
               <span>
                 <span className="block font-bold">
                   {busy ? "Please wait..." : "Clock Out"}
                 </span>
-
                 <span className="mt-1 block text-sm text-slate-500">
                   Finish your workday
                 </span>
@@ -377,21 +453,20 @@ export default function EmployeeDashboard() {
           )}
         </section>
 
-        {/* Attendance History */}
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-7">
             <div>
               <h2 className="text-lg font-bold">Attendance History</h2>
-
               <p className="mt-1 text-sm text-slate-500">
                 Review your recorded check-in and check-out times.
               </p>
             </div>
 
             <button
+              type="button"
               onClick={loadAttendance}
-              disabled={loading}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              disabled={loading || employeeLoading}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
               <RefreshCw
                 size={16}
@@ -401,7 +476,7 @@ export default function EmployeeDashboard() {
             </button>
           </div>
 
-          {loading ? (
+          {loading || employeeLoading ? (
             <div className="flex items-center justify-center gap-3 px-5 py-14 text-sm text-slate-500">
               <LoaderCircle className="animate-spin" size={20} />
               Loading attendance records...
@@ -411,11 +486,9 @@ export default function EmployeeDashboard() {
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
                 <CalendarDays size={26} />
               </div>
-
               <h3 className="mt-4 font-semibold text-slate-800">
                 No attendance records yet
               </h3>
-
               <p className="mt-2 text-sm text-slate-500">
                 Your attendance records will appear here after they are created.
               </p>
@@ -431,7 +504,6 @@ export default function EmployeeDashboard() {
                     <th className="px-6 py-4 font-semibold">Status</th>
                   </tr>
                 </thead>
-
                 <tbody className="divide-y divide-slate-100">
                   {records.map((record, index) => {
                     const status = String(
@@ -446,15 +518,12 @@ export default function EmployeeDashboard() {
                         <td className="whitespace-nowrap px-6 py-4 font-medium text-slate-800">
                           {record.attendance_date || record.date || "—"}
                         </td>
-
                         <td className="whitespace-nowrap px-6 py-4 text-slate-600">
                           {record.check_in || "—"}
                         </td>
-
                         <td className="whitespace-nowrap px-6 py-4 text-slate-600">
                           {record.check_out || "—"}
                         </td>
-
                         <td className="px-6 py-4">
                           <span
                             className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${

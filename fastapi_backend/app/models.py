@@ -1,3 +1,4 @@
+
 from datetime import datetime
 
 from sqlalchemy import (
@@ -58,9 +59,25 @@ class Payroll(Base):
     id = Column(Integer, primary_key=True, index=True)
     employee_id = Column(Integer, nullable=False, index=True)
     pay_month = Column(String(7), nullable=False)
+
+    # Salary components
     basic_salary = Column(Integer, nullable=False)
+    hra = Column(Integer, nullable=False, default=0)
+    other_allowances = Column(Integer, nullable=False, default=0)
+    bonus = Column(Integer, nullable=False, default=0)
+    overtime_pay = Column(Integer, nullable=False, default=0)
+
+    # Compatibility with existing API and salary slips
     allowances = Column(Integer, nullable=False, default=0)
     deductions = Column(Integer, nullable=False, default=0)
+
+    # Detailed deductions and calculations
+    loss_of_pay = Column(Integer, nullable=False, default=0)
+    other_deductions = Column(Integer, nullable=False, default=0)
+    gross_salary = Column(Integer, nullable=False, default=0)
+    overtime_minutes = Column(Integer, nullable=False, default=0)
+    loss_of_pay_days = Column(Integer, nullable=False, default=0)
+
     net_salary = Column(Integer, nullable=False)
     status = Column(String(20), nullable=False, default="PROCESSED")
     created_at = Column(DateTime, nullable=False, default=datetime.now)

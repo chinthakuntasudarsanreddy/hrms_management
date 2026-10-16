@@ -16,6 +16,8 @@ import { fastApi } from "../services/api";
 export default function EmployeeLeave() {
   const navigate = useNavigate();
 
+  const [employeeId, setEmployeeId] = useState(null);
+  const [employeeLoading, setEmployeeLoading] = useState(true);
   const [leaves, setLeaves] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -29,28 +31,69 @@ export default function EmployeeLeave() {
     reason: "",
   });
 
-  let user = {};
-
-  try {
-    user = JSON.parse(localStorage.getItem("hrms_user") || "{}");
-  } catch {
-    user = {};
-  }
-
-  const employeeId = user.employee_id ?? user.employee?.id ?? null;
-
   const todayKey = [
     new Date().getFullYear(),
     String(new Date().getMonth() + 1).padStart(2, "0"),
     String(new Date().getDate()).padStart(2, "0"),
   ].join("-");
 
+  // Load the employee profile linked to the logged-in user.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadEmployeeProfile() {
+      setEmployeeLoading(true);
+
+      try {
+        const response = await fastApi.get("/attendance/profile");
+        const data = response.data;
+
+        const id = Number(
+          data?.employee_id ??
+            data?.employee?.id ??
+            data?.id ??
+            0
+        );
+
+        if (!cancelled) {
+          if (Number.isInteger(id) && id > 0) {
+            setEmployeeId(id);
+            setError("");
+          } else {
+            setEmployeeId(null);
+            setError(
+              "Your employee profile is not linked correctly. Please contact HR."
+            );
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setEmployeeId(null);
+          setError(
+            err.response?.data?.detail ||
+              "Unable to load your employee profile. Please check your login and API connection."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setEmployeeLoading(false);
+        }
+      }
+    }
+
+    loadEmployeeProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load leave history only after the employee ID is available.
   const loadLeaves = useCallback(async () => {
+    if (employeeLoading) return;
+
     if (!employeeId) {
       setLeaves([]);
-      setError(
-        "Employee ID is missing from your account. Contact your HR administrator."
-      );
       setLoading(false);
       return;
     }
@@ -67,10 +110,8 @@ export default function EmployeeLeave() {
       setLeaves(
         Array.isArray(data)
           ? data
-          : data.records || data.leaves || []
+          : data?.records || data?.leaves || []
       );
-
-      setError("");
     } catch (err) {
       setError(
         err.response?.data?.detail ||
@@ -79,7 +120,7 @@ export default function EmployeeLeave() {
     } finally {
       setLoading(false);
     }
-  }, [employeeId]);
+  }, [employeeId, employeeLoading]);
 
   useEffect(() => {
     loadLeaves();
@@ -87,7 +128,11 @@ export default function EmployeeLeave() {
 
   function updateField(event) {
     const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: value }));
+
+    setForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
   }
 
   async function handleSubmit(event) {
@@ -102,6 +147,11 @@ export default function EmployeeLeave() {
       return;
     }
 
+    if (!form.start_date || !form.end_date || !form.reason.trim()) {
+      setError("Please complete all fields.");
+      return;
+    }
+
     if (form.start_date < todayKey) {
       setError("Start date cannot be in the past.");
       return;
@@ -109,11 +159,6 @@ export default function EmployeeLeave() {
 
     if (form.end_date < form.start_date) {
       setError("End date cannot be earlier than start date.");
-      return;
-    }
-
-    if (!form.reason.trim()) {
-      setError("Please enter a reason for your leave.");
       return;
     }
 
@@ -140,10 +185,11 @@ export default function EmployeeLeave() {
       await loadLeaves();
     } catch (err) {
       const detail = err.response?.data?.detail;
+
       setError(
         typeof detail === "string"
           ? detail
-          : "Unable to submit your leave application. Check the API request fields."
+          : "Unable to submit your leave application. Please check the API request fields."
       );
     } finally {
       setSubmitting(false);
@@ -160,6 +206,9 @@ export default function EmployeeLeave() {
         return "bg-amber-50 text-amber-700";
     }
   }
+
+  const submitDisabled =
+    employeeLoading || !employeeId || submitting;
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
@@ -196,14 +245,29 @@ export default function EmployeeLeave() {
           <p className="text-sm text-indigo-100">
             Employee self-service
           </p>
+
           <h2 className="mt-2 text-2xl font-bold sm:text-3xl">
             Leave Application
           </h2>
+
           <p className="mt-2 text-sm leading-6 text-indigo-100">
             Submit your requested dates and reason. Your request will remain
             pending until reviewed by HR.
           </p>
+
+          {employeeId && (
+            <p className="mt-3 text-sm text-indigo-100">
+              Employee ID: {employeeId}
+            </p>
+          )}
         </section>
+
+        {employeeLoading && (
+          <div className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-700">
+            <LoaderCircle size={18} className="animate-spin" />
+            Loading your employee profile...
+          </div>
+        )}
 
         {error && (
           <div
@@ -230,6 +294,7 @@ export default function EmployeeLeave() {
             <div className="rounded-xl bg-indigo-50 p-3 text-indigo-600">
               <Send size={21} />
             </div>
+
             <div>
               <h3 className="font-bold">Submit a request</h3>
               <p className="mt-1 text-sm text-slate-500">
@@ -247,6 +312,7 @@ export default function EmployeeLeave() {
                 >
                   Leave Type
                 </label>
+
                 <select
                   id="leave_type"
                   name="leave_type"
@@ -269,6 +335,7 @@ export default function EmployeeLeave() {
                 >
                   Start Date
                 </label>
+
                 <input
                   id="start_date"
                   name="start_date"
@@ -288,6 +355,7 @@ export default function EmployeeLeave() {
                 >
                   End Date
                 </label>
+
                 <input
                   id="end_date"
                   name="end_date"
@@ -307,6 +375,7 @@ export default function EmployeeLeave() {
                 >
                   Reason
                 </label>
+
                 <input
                   id="reason"
                   name="reason"
@@ -323,15 +392,20 @@ export default function EmployeeLeave() {
 
             <button
               type="submit"
-              disabled={submitting || !employeeId}
+              disabled={submitDisabled}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {submitting ? (
+              {submitting || employeeLoading ? (
                 <LoaderCircle size={18} className="animate-spin" />
               ) : (
                 <Send size={17} />
               )}
-              {submitting ? "Submitting..." : "Submit Leave Request"}
+
+              {submitting
+                ? "Submitting..."
+                : employeeLoading
+                  ? "Loading profile..."
+                  : "Submit Leave Request"}
             </button>
           </form>
         </section>
@@ -348,7 +422,7 @@ export default function EmployeeLeave() {
             <button
               type="button"
               onClick={loadLeaves}
-              disabled={loading}
+              disabled={loading || employeeLoading || !employeeId}
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold transition hover:bg-slate-50 disabled:opacity-50"
             >
               <RefreshCw
@@ -359,7 +433,7 @@ export default function EmployeeLeave() {
             </button>
           </div>
 
-          {loading ? (
+          {loading || employeeLoading ? (
             <div className="flex items-center justify-center gap-3 px-5 py-12 text-sm text-slate-500">
               <LoaderCircle className="animate-spin" size={20} />
               Loading leave history...
@@ -370,9 +444,11 @@ export default function EmployeeLeave() {
                 className="mx-auto text-slate-400"
                 size={34}
               />
+
               <p className="mt-3 font-semibold text-slate-800">
                 No leave requests yet
               </p>
+
               <p className="mt-1 text-sm text-slate-500">
                 Your applications will appear here.
               </p>
@@ -389,6 +465,7 @@ export default function EmployeeLeave() {
                     <th className="px-5 py-4 font-semibold">Status</th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-slate-100">
                   {leaves.map((leave, index) => {
                     const status = String(
@@ -403,12 +480,15 @@ export default function EmployeeLeave() {
                         <td className="whitespace-nowrap px-5 py-4 font-medium text-slate-800">
                           {leave.leave_type || "—"}
                         </td>
+
                         <td className="whitespace-nowrap px-5 py-4 text-slate-600">
                           {leave.start_date || "—"}
                         </td>
+
                         <td className="whitespace-nowrap px-5 py-4 text-slate-600">
                           {leave.end_date || "—"}
                         </td>
+
                         <td className="max-w-64 px-5 py-4 text-slate-600">
                           <p
                             className="truncate"
@@ -417,6 +497,7 @@ export default function EmployeeLeave() {
                             {leave.reason || "—"}
                           </p>
                         </td>
+
                         <td className="whitespace-nowrap px-5 py-4">
                           <span
                             className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusStyle(status)}`}

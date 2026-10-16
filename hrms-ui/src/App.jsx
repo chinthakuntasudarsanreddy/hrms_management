@@ -1,12 +1,17 @@
-
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import Login from "./pages/Login";
 import AdminDashboard from "./pages/AdminDashboard";
 import EmployeeDashboard from "./pages/EmployeeDashboard";
+import EmployeeManagement from "./pages/EmployeeManagement";
 import LeaveManagement from "./pages/LeaveManagement";
 import EmployeeLeave from "./pages/EmployeeLeave";
 import EmployeePayroll from "./pages/EmployeePayroll";
+import AdminPayroll from "./pages/AdminPayroll";
+import Holidays from "./pages/Holidays";
+import ShiftManagement from "./pages/ShiftManagement";
+import NotificationPreferences from "./components/NotificationPreferences";
+import NotificationBroadcast from "./pages/NotificationBroadcast";
 
 function ProtectedRoute({ children, allowedRoles }) {
   const token = localStorage.getItem("hrms_access_token");
@@ -44,12 +49,17 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Home */}
         <Route
           path="/"
           element={<Navigate to="/login" replace />}
         />
 
-        <Route path="/login" element={<Login />} />
+        {/* Login */}
+        <Route
+          path="/login"
+          element={<Login />}
+        />
 
         {/* Admin and HR Dashboard */}
         <Route
@@ -57,6 +67,16 @@ export default function App() {
           element={
             <ProtectedRoute allowedRoles={["ADMIN", "HR"]}>
               <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Employee Management */}
+        <Route
+          path="/employee-management"
+          element={
+            <ProtectedRoute allowedRoles={["ADMIN", "HR"]}>
+              <EmployeeManagement />
             </ProtectedRoute>
           }
         />
@@ -71,7 +91,7 @@ export default function App() {
           }
         />
 
-        {/* HR Leave Management */}
+        {/* Leave Management */}
         <Route
           path="/leave-management"
           element={
@@ -91,12 +111,66 @@ export default function App() {
           }
         />
 
-        {/* Employee Payroll and Salary Slips */}
+        {/* Employee Payroll */}
         <Route
           path="/employee-payroll"
           element={
             <ProtectedRoute allowedRoles={["EMPLOYEE"]}>
               <EmployeePayroll />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Advanced Payroll Management */}
+        <Route
+          path="/admin-payroll"
+          element={
+            <ProtectedRoute allowedRoles={["ADMIN", "HR"]}>
+              <AdminPayroll />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Holiday Calendar */}
+        <Route
+          path="/holidays"
+          element={
+            <ProtectedRoute
+              allowedRoles={["ADMIN", "HR", "EMPLOYEE"]}
+            >
+              <Holidays />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Shift Management */}
+        <Route
+          path="/shifts"
+          element={
+            <ProtectedRoute allowedRoles={["ADMIN", "HR"]}>
+              <ShiftManagement />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Notification Preferences */}
+        <Route
+          path="/notification-preferences"
+          element={
+            <ProtectedRoute
+              allowedRoles={["ADMIN", "HR", "EMPLOYEE"]}
+            >
+              <NotificationPreferences />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Admin Notification Broadcast */}
+        <Route
+          path="/notification-broadcast"
+          element={
+            <ProtectedRoute allowedRoles={["ADMIN"]}>
+              <NotificationBroadcast />
             </ProtectedRoute>
           }
         />
@@ -107,7 +181,7 @@ export default function App() {
           element={<LogoutRedirect />}
         />
 
-        {/* Unknown routes */}
+        {/* Unknown Routes */}
         <Route
           path="*"
           element={<Navigate to="/login" replace />}

@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Wallet,
   AlertCircle,
+  CheckCircle2,
 } from "lucide-react";
 import { fastApi } from "../services/api";
 
@@ -37,33 +38,76 @@ function formatMonth(value) {
 export default function EmployeePayroll() {
   const navigate = useNavigate();
 
+  const [employeeId, setEmployeeId] = useState(null);
+  const [employeeLoading, setEmployeeLoading] = useState(true);
   const [payroll, setPayroll] = useState([]);
   const [loading, setLoading] = useState(true);
   const [downloadingId, setDownloadingId] = useState(null);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
-  let user = {};
+  // Load the employee profile for the logged-in user.
+  useEffect(() => {
+    let cancelled = false;
 
-  try {
-    user = JSON.parse(localStorage.getItem("hrms_user") || "{}");
-  } catch {
-    user = {};
-  }
+    async function loadEmployeeProfile() {
+      setEmployeeLoading(true);
 
-  const employeeId =
-    user.employee_id ?? user.employee?.id ?? null;
+      try {
+        const response = await fastApi.get("/attendance/profile");
+        const data = response.data;
 
+        const id = Number(
+          data?.employee_id ??
+            data?.employee?.id ??
+            data?.id ??
+            0
+        );
+
+        if (!cancelled) {
+          if (Number.isInteger(id) && id > 0) {
+            setEmployeeId(id);
+            setError("");
+          } else {
+            setEmployeeId(null);
+            setError(
+              "Your employee profile is not linked correctly. Please contact HR."
+            );
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setEmployeeId(null);
+          setError(
+            err.response?.data?.detail ||
+              "Unable to load your employee profile. Check your login and API connection."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setEmployeeLoading(false);
+        }
+      }
+    }
+
+    loadEmployeeProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load payroll records after the employee ID is available.
   const loadPayroll = useCallback(async () => {
+    if (employeeLoading) return;
+
     if (!employeeId) {
-      setError(
-        "Employee ID is missing. Please link your login account to an employee profile."
-      );
+      setPayroll([]);
       setLoading(false);
       return;
     }
 
     setLoading(true);
-    setError("");
 
     try {
       const response = await fastApi.get(
@@ -75,8 +119,13 @@ export default function EmployeePayroll() {
       setPayroll(
         Array.isArray(data)
           ? data
-          : data?.payrolls || data?.records || data?.items || []
+          : data?.payrolls ||
+              data?.records ||
+              data?.items ||
+              []
       );
+
+      setError("");
     } catch (err) {
       setError(
         err.response?.data?.detail ||
@@ -85,27 +134,35 @@ export default function EmployeePayroll() {
     } finally {
       setLoading(false);
     }
-  }, [employeeId]);
+  }, [employeeId, employeeLoading]);
 
   useEffect(() => {
     loadPayroll();
   }, [loadPayroll]);
 
   async function downloadSalarySlip(payrollId) {
+    if (!payrollId) {
+      setError("The payroll record ID is missing.");
+      return;
+    }
+
     try {
       setDownloadingId(payrollId);
       setError("");
+      setMessage("");
 
       const response = await fastApi.get(
         `/salary-slips/${payrollId}/pdf`,
         { responseType: "blob" }
       );
 
-      const blobUrl = window.URL.createObjectURL(
-        new Blob([response.data], { type: "application/pdf" })
-      );
+      const blob = new Blob([response.data], {
+        type: "application/pdf",
+      });
 
+      const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
+
       link.href = blobUrl;
       link.download = `salary-slip-${payrollId}.pdf`;
 
@@ -114,6 +171,8 @@ export default function EmployeePayroll() {
       link.remove();
 
       window.URL.revokeObjectURL(blobUrl);
+
+      setMessage(`Salary slip ${payrollId} download requested.`);
     } catch (err) {
       setError(
         err.response?.data?.detail ||
@@ -126,7 +185,13 @@ export default function EmployeePayroll() {
 
   const totalNetPay = payroll.reduce(
     (total, item) =>
-      total + Number(item.net_salary ?? item.net_pay ?? item.net_amount ?? 0),
+      total +
+      Number(
+        item.net_salary ??
+          item.net_pay ??
+          item.net_amount ??
+          0
+      ),
     0
   );
 
@@ -138,6 +203,7 @@ export default function EmployeePayroll() {
             <div className="rounded-xl bg-indigo-600 p-2.5 text-white">
               <Wallet size={22} />
             </div>
+
             <div>
               <h1 className="text-lg font-bold">My Payroll</h1>
               <p className="text-sm text-slate-500">
@@ -147,6 +213,7 @@ export default function EmployeePayroll() {
           </div>
 
           <button
+            type="button"
             onClick={() => navigate("/employee-dashboard")}
             className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold hover:bg-slate-100"
           >
@@ -157,6 +224,19 @@ export default function EmployeePayroll() {
       </header>
 
       <main className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+        {employeeLoading && (
+          <div className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-700">
+            <LoaderCircle size={18} className="animate-spin" />
+            Loading your employee profile...
+          </div>
+        )}
+
+        {employeeId && (
+          <p className="text-sm text-slate-500">
+            Employee ID: <strong>{employeeId}</strong>
+          </p>
+        )}
+
         <section className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between">
@@ -165,7 +245,11 @@ export default function EmployeePayroll() {
               </p>
               <FileText className="text-indigo-600" size={22} />
             </div>
-            <p className="mt-3 text-3xl font-bold">{payroll.length}</p>
+
+            <p className="mt-3 text-3xl font-bold">
+              {payroll.length}
+            </p>
+
             <p className="mt-1 text-sm text-slate-500">
               Available salary records
             </p>
@@ -178,9 +262,11 @@ export default function EmployeePayroll() {
               </p>
               <Banknote className="text-emerald-600" size={22} />
             </div>
+
             <p className="mt-3 text-3xl font-bold">
               {formatCurrency(totalNetPay)}
             </p>
+
             <p className="mt-1 text-sm text-slate-500">
               Across loaded payroll records
             </p>
@@ -188,9 +274,22 @@ export default function EmployeePayroll() {
         </section>
 
         {error && (
-          <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div
+            role="alert"
+            className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+          >
             <AlertCircle size={19} className="mt-0.5 shrink-0" />
             <p>{error}</p>
+          </div>
+        )}
+
+        {message && (
+          <div
+            role="status"
+            className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
+          >
+            <CheckCircle2 size={19} className="mt-0.5 shrink-0" />
+            <p>{message}</p>
           </div>
         )}
 
@@ -204,26 +303,35 @@ export default function EmployeePayroll() {
             </div>
 
             <button
+              type="button"
               onClick={loadPayroll}
-              disabled={loading}
+              disabled={loading || employeeLoading || !employeeId}
               className="flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50"
             >
-              <RefreshCw size={16} />
+              <RefreshCw
+                size={16}
+                className={loading ? "animate-spin" : ""}
+              />
               Refresh
             </button>
           </div>
 
-          {loading ? (
+          {loading || employeeLoading ? (
             <div className="flex items-center justify-center gap-2 p-12 text-slate-500">
               <LoaderCircle className="animate-spin" size={20} />
               Loading payroll...
             </div>
           ) : payroll.length === 0 ? (
             <div className="p-12 text-center">
-              <FileText className="mx-auto text-slate-300" size={40} />
+              <FileText
+                className="mx-auto text-slate-300"
+                size={40}
+              />
+
               <h3 className="mt-4 font-semibold">
                 No payroll records found
               </h3>
+
               <p className="mt-2 text-sm text-slate-500">
                 Your salary records will appear here after payroll is processed.
               </p>
@@ -244,37 +352,55 @@ export default function EmployeePayroll() {
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-                  {payroll.map((item) => {
+                  {payroll.map((item, index) => {
                     const id = item.id ?? item.payroll_id;
                     const month =
-                      item.pay_month ?? item.salary_month ?? item.month;
+                      item.pay_month ??
+                      item.salary_month ??
+                      item.month;
 
                     return (
-                      <tr key={id} className="hover:bg-slate-50">
-                        <td className="px-5 py-4 font-semibold">#{id}</td>
+                      <tr
+                        key={id ?? index}
+                        className="hover:bg-slate-50"
+                      >
+                        <td className="px-5 py-4 font-semibold">
+                          #{id ?? "—"}
+                        </td>
+
                         <td className="px-5 py-4">
                           {formatMonth(month)}
                         </td>
+
                         <td className="px-5 py-4">
                           {formatCurrency(
                             item.base_salary ?? item.basic_salary
                           )}
                         </td>
+
                         <td className="px-5 py-4 text-emerald-700">
                           {formatCurrency(item.allowances)}
                         </td>
+
                         <td className="px-5 py-4 text-red-600">
                           {formatCurrency(item.deductions)}
                         </td>
+
                         <td className="px-5 py-4 font-bold">
                           {formatCurrency(
-                            item.net_salary ?? item.net_pay ?? item.net_amount
+                            item.net_salary ??
+                              item.net_pay ??
+                              item.net_amount
                           )}
                         </td>
+
                         <td className="px-5 py-4">
                           <button
+                            type="button"
                             onClick={() => downloadSalarySlip(id)}
-                            disabled={!id || downloadingId === id}
+                            disabled={
+                              !id || downloadingId === id
+                            }
                             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-3 py-2 font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
                           >
                             {downloadingId === id ? (
